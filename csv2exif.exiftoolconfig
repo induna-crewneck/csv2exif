@@ -1,0 +1,16 @@
+%Image::ExifTool::UserDefined = (
+    'Image::ExifTool::XMP::xmp' => {
+        Film => { Writable => 'string' },
+        FilmMaker => { Writable => 'string' },
+        FilmType => { Writable => 'string' },
+        FilmID => { Writable => 'string' },
+    },
+);
+
+1;
+
+#Define config file: exiftool -config "csv2exif.exiftoolconfig" (needs to be first argument)
+#Sample usage: -xmp-xmp:film="Gold" -xmp-xmp:filmmaker="Kodak" -xmp-xmp:filmtype="135" -xmp-xmp:filmid="0001"
+#Source, info and sample file: https://exiftool.org/config.html
+
+#This file belongs to github.com/induna-crewneck/csv2exif
