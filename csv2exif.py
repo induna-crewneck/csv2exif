@@ -1,5 +1,5 @@
 """
-CSV2EXIF    v1.5    (2023-09-21)
+CSV2EXIF    v1.6    (2023-09-22)
 https://github.com/induna-crewneck/csv2exif
 Requirements:
     python3     v3+         https://www.python.org/downloads/
@@ -96,18 +96,30 @@ OrientationValues = ["1","2","3","4","5","6","7","8"]
 OrientationWorldList = ["Horizontal (normal)","Mirror horizontal","Rotate 180","Mirror vertical","Mirror horizontal and rotate 270 CW","Rotate 90 CW","Mirror horizontal and rotate 90 CW","Rotate 270 CW"]
 lookupdata = [["Flash","0","No Flash"],["Flash","1","Fired"],["Flash","5","Fired, Return not detected"],["Flash","7","Fired, Return detected"],["Flash","8","On, Did not fire"],["Flash","9","On, Fired"],["Flash","d","On, Return not detected"],["Flash","f","On, Return detected"],["Flash","10","Off, Did not fire"],["Flash","14","Off, Did not fire, Return not detected"],["Flash","18","Auto, Did not fire"],["Flash","19","Auto, Fired"],["Flash","1d","Auto, Fired, Return not detected"],["Flash","1f","Auto, Fired, Return detected"],["Flash","20","No flash function"],["Flash","30","Off, No flash function"],["Flash","41","Fired, Red-eye reduction"],["Flash","45","Fired, Red-eye reduction, Return not detected"],["Flash","47","Fired, Red-eye reduction, Return detected"],["Flash","49","On, Red-eye reduction"],["Flash","4d","On, Red-eye reduction, Return not detected"],["Flash","4f","On, Red-eye reduction, Return detected"],["Flash","50","Off, Red-eye reduction"],["Flash","58","Auto, Did not fire, Red-eye reduction"],["Flash","59","Auto, Fired, Red-eye reduction"],["Flash","5d","Auto, Fired, Red-eye reduction, Return not detected"],["Flash","5f","Auto, Fired, Red-eye reduction, Return detected"],["Orientation","1","Horizontal (normal)"],["Orientation","2","Mirror horizontal"],["Orientation","3","Rotate 180"],["Orientation","4","Mirror vertical"],["Orientation","5","Mirror horizontal and rotate 270 CW"],["Orientation","6","Rotate 90 CW"],["Orientation","7","Mirror horizontal and rotate 90 CW"],["Orientation","8","Rotate 270 CW"]]
 lookupdf = pd.DataFrame(lookupdata, columns=["Category","In","Out"])
+specialChars = ["ß","ü","ä","ü","ö","é","è","á","à","ó","ò","æ","ø","å"]
 """
 Info on Tags:
 https://exiftool.org/TagNames/EXIF.html
 https://exiftool.org/TagNames/XMP.html
 """
 
-def removeSpecialChars(inString):
-    try: outString = inString.replace("ß","ss").replace("ü","ue").replace("ä","ae").replace("ü","ue").replace("ö","oe").replace("é","e").replace("è","e").replace("á","a").replace("à","a").replace("ó","o").replace("ò","o").replace("æ","ae").replace("ø","o").replace("å","a").replace("\\r\\n",". ").replace("\\n",". ")
+def specialCharTreatment(inList):
+    # Made to combat utf8 encoding errors, but maybe fixed somehow otherwise. Leaving it here for now (1.6)
+    try:
+        useLatin1encoding = False
+        foundspecialChars = []
+        for specialChar in specialChars:
+            for i in inList:
+                if specialChar in i:
+                    useLatin1encoding = True
+                    foundspecialChars.append(specialChar)
+        if useLatin1encoding == True:
+            if DEBUG >= 1: print("Using Latin1 encoding because special characters were detected:",",".join(foundspecialChars))
+            exiftoolcommandargs.append('-latin')
+        elif DEBUG > 1: print("No special characters found")
     except Exception as e:
-        if DEBUG >= 1: print("Error while processing string containing weird symbols",e)
-        outString = ""
-    return outString
+        if DEBUG >= 1: print("Error while checking for special characters\n ",e)
+    return
 
 try:
     pd.set_option("display.max_colwidth", 10000)
@@ -156,7 +168,7 @@ for (dirname, dirnames, filenames) in w:
         data = df[df["ID"] == ID]   #Outputs
 
         # Matching EXIFtags to CSV Columns:
-        exiftoolcommandargs = [exiftoolpath+' -config "'+configpath+'" -exif:ImageNumber='+str(int(ID))]
+        exiftoolcommandargs = [exiftoolpath+' -config "'+configpath+'" -exif:ImageNumber='+str(int(ID))+' -ImageUniqueID='+str(int(ID))]
         if keeporiginal == False: exiftoolcommandargs.append('-overwrite_original')
 
         # Setting DateTime
@@ -186,7 +198,10 @@ for (dirname, dirnames, filenames) in w:
                 try: FocalLength
                 except NameError: FocalLength = ""
                 if len(FocalLength)>0:
-                    exiftoolcommandargs.append('-exif:FocalLength="'+FocalLength+'" -ExifIFD:FocalLengthIn35mmFormat="'+FocalLength+'" -xmp-exif:FocalLength="'+FocalLength+'" -xmp-exif:FocalLengthIn35mmFormat="'+FocalLength+'"')
+                    try: FocalLength = str(re.search('(\d*)(.*)',FocalLength,re.IGNORECASE).group(1)).strip()
+                    except Exception as e:
+                        if DEBUG >= 1: print("Error during FocalLength formatting:\n    ",e)
+                    exiftoolcommandargs.append('-exif:FocalLength="'+FocalLength+'" -ExifIFD:FocalLengthIn35mmFormat="'+FocalLength+'" -xmp-exif:FocalLength="'+FocalLength+'" -xmp-exif:FocalLengthIn35mmFormat='+str(int(FocalLength))+'')
                     if DEBUG >= 1: print("Focal Length:"+" "*(linelength-13)+FocalLength+" mm")
                 elif DEBUG > 1: print("FocalLength not found in CSV")
             except Exception as e:
@@ -215,8 +230,7 @@ for (dirname, dirnames, filenames) in w:
         # Setting Artist:
         try:
             Artist = data["Artist"].to_string(index=False, header=False)
-            #exiftoolcommandargs.append('-exif:Artist="'+Artist+'" -exif:OwnerName="'+Artist+'" -exif:Photographer="'+Artist+'" -xmp-dc:Creator="'+Artist+'"')
-            exiftoolcommandargs.append('-exif:Artist="'+Artist+'" -exif:OwnerName="'+Artist+'" -xmp-dc:Creator="'+Artist+'" -IFD0:XPAuthor="'+Artist+'"')
+            exiftoolcommandargs.append('-exif:Artist="'+Artist+'" -exif:OwnerName="'+Artist+'" -xmp-dc:Creator="'+Artist+'" -IFD0:XPAuthor="'+Artist+'"') #ExifIFD:Photographer doesn't work, although specified in documentation
             if DEBUG >= 1: print("Artist:"+" "*(linelength-7)+Artist)
         except Exception as e:
             if DEBUG >= 1: print("Error during Artist processing:\n    ",e)
@@ -303,8 +317,7 @@ for (dirname, dirnames, filenames) in w:
                     if DEBUG > 1: print(exif,"found in CSV but empty")
                 elif exif == "UserComment":
                     Comment = str(variables[exif]).replace("\\r\\n",". ").replace("\\n",". ")
-                    CommentConv = removeSpecialChars(Comment)
-                    exiftoolcommandargs.append('-exif:UserComment="'+Comment+'" -IFD0:XPComment="'+CommentConv+'"')
+                    exiftoolcommandargs.append('-exif:UserComment="'+Comment+'" -IFD0:XPComment="'+Comment+'"')
                     if DEBUG >= 1: print("Comment:"+" "*(linelength-8)+Comment)
                 elif exif == "Make": CamMake = str(variables[exif])
                 elif exif == "Model": CamModel = str(variables[exif])
@@ -314,7 +327,7 @@ for (dirname, dirnames, filenames) in w:
                     try:
                         LensMake = re.search('^(\w*) (.*)',Lens).group(1).strip()
                         LensModel = Lens.replace(LensMake,"").strip()
-                        exiftoolcommandargs.append('-xmp-exifex:LensMake="'+LensMake+'" -ExifIFD:LensMake="'+LensMake+'" -xmp-exifex:LensModel="'+LensModel+'" -ExifIFD:LensModel="'+LensModel+'"')
+                        exiftoolcommandargs.append('-xmp-exifex:LensMake="'+LensMake+'" -ExifIFD:LensMake="'+LensMake+'" -xmp-exifex:LensModel="'+LensModel+'" -ExifIFD:LensModel="'+LensModel+'" -XMP-microsoft:LensManufacturer="'+LensMake+'" -XMP-microsoft:LensModel="'+LensModel+'"')
                     except Exception as e:
                         LensModel = ""
                         if DEBUG >= 1: print("Error while processing LensMake and LensModel")
@@ -323,6 +336,8 @@ for (dirname, dirnames, filenames) in w:
                 else:
                     if exif == "Flash":
                         if str(variables[exif]).replace(".0","") in FlashValues:
+                            if str(variables[exif]).replace(".0","") == "1": Flashtag = True
+                            else: Flashtag = False
                             #Lookup Conditions:
                             FlashListFiltered = lookupdf.loc[(lookupdf["Category"] == "Flash")&(lookupdf["In"] == str(variables[exif]).replace(".0",""))]
                             #Getting Target Value:
@@ -351,28 +366,32 @@ for (dirname, dirnames, filenames) in w:
                     variables[xmp] = ""
                     if DEBUG > 1: print(xmp,"found in CSV but empty")
                 else:
-                    if xmp == "Event": exiftoolcommandargs.append('-xmp-iptcExt:Event="'+str(variables[xmp])+'"')
+                    if xmp == "Event":
+                        Event = str(variables[xmp])
+                        exiftoolcommandargs.append('-xmp-iptcExt:Event="'+Event+'"')
                     elif xmp == "Subject":
                         Subject = str(variables[xmp])
-                        Subjectconv = removeSpecialChars(Subject)
-                        exiftoolcommandargs.append('-xmp-dc:Subject="'+Subject+'" -IFD0:ImageDescription="'+Subject+'" -IFD0:XPSubject="'+Subjectconv+'"')
+                        exiftoolcommandargs.append('-IFD0:ImageDescription="'+Subject+'" -IFD0:XPSubject="'+Subject+'"')
+                        # excluded -xmp-dc:Subject because it shows in Windows as tags, see below
                     else: exiftoolcommandargs.append('-xmp:'+xmp+'="'+str(variables[xmp])+'"')
                     if xmp == "LocationShownSublocation": LocationShownSublocation = str(variables[xmp])
                     elif xmp == "LocationShownCity": LocationShownCity = str(variables[xmp])
                     elif xmp == "LocationShownProvinceState": LocationShownProvinceState = str(variables[xmp])
                     elif xmp == "LocationShownCountryName": LocationShownCountryName = str(variables[xmp])
+                    elif xmp == "PersonInImage": PersonInImage = str(variables[xmp])
                     if DEBUG >= 1:
                         print(xmp+":"+" "*(linelength-len(xmp)-1)+str(variables[xmp]))
             except Exception as e:
                 ERROR = exif+" not found in CSV"
-                if DEBUG > 1: print(ERROR,"\n",e)
+                if DEBUG > 1: print(ERROR,"\n    ",e)
 
         #Applying set Variables to additional tags:
+        #Camera name (Make and Model combined)
         try:
             if len(CamMake)+len(CamModel)>0:
                 CameraLabel = CamMake+" "+CamModel
                 if DEBUG >= 1: print("CameraLabel:"+" "*(linelength-12)+CameraLabel)
-                exiftoolcommandargs.append('-IFD0:CameraLabel="'+CameraLabel+'" -XMP-xmpDM:CameraModel="'+CameraLabel+'" -XMP-getty:CameraMakeModel="'+CameraLabel+'"')
+                exiftoolcommandargs.append('-IFD0:CameraLabel="'+CameraLabel+'" -XMP-xmpDM:CameraModel="'+CameraLabel+'" -XMP-getty:CameraMakeModel="'+CameraLabel+'" -IFD0:Make="'+CamMake+'" -IFD0:Model="'+CamModel+'"')
                 try: exiftoolcommandargs.append("-XMP-Device:Camera:VendorInfo=\"{Manufacturer='"+CamMake+"',Model='"+CamModel+"'}\"")
                 except: error=true #just to do something
             elif DEBUG >1: print("Make and Model could not be found to create CameraLabel")
@@ -380,23 +399,72 @@ for (dirname, dirnames, filenames) in w:
             if DEBUG >= 1: print("Exception while processing CameraLabel")
             if DEBUG >1: print(e)
 
-        filepath = photopath+"/"+filename
-        exiftoolcommandargs.append('-exif:Software="github.com/induna-crewneck/csv2exif" "'+filepath+'"')
-        if DEBUG > 1: print("\nArgument list:\n",exiftoolcommandargs,"\n")
-        exiftoolcommand = ' '.join(exiftoolcommandargs)
-        if DEBUG > 1: print("Commandline:\n"+exiftoolcommand+"\n")
+        #Tags (multiple things combined)
         try:
-            if DEBUG > 1:
-                f=open(photopath+"/"+filename+"_exiftoolcommand.txt", "w")
+            taglist = []
+            peoplelist = []
+            try: Artist
+            except: Artist = ""
+            try:
+                if "," in PersonInImage: peoplelist = PersonInImage.split(",")
+                elif "+" in PersonInImage: peoplelist = PersonInImage.split("+")
+                elif "&" in PersonInImage: peoplelist = PersonInImage.split("&")
+                elif " and " in PersonInImage: peoplelist = PersonInImage.split(" and ")
+                elif " und " in PersonInImage: peoplelist = PersonInImage.split(" und ")
+                else: peoplelist.append(PersonInImage)
+                for person in peoplelist: taglist.append(person.strip())
+                if PersonInImage == Artist: taglist.append("Selfportrait")
+                elif len(peoplelist)==1: taglist.append("Portrait")
+            except Exception as e:
+                if DEBUG > 1: print("Exception while splitting People:",e)
+            try: taglist.append(LocationShownSublocation)
+            except: tagerror = True
+            try: taglist.append(LocationShownCity)
+            except: tagerror = True
+            try: taglist.append(Event)
+            except: tagerror = True
+            try: taglist.append(CamMake)
+            except: tagerror = True
+            try: taglist.append(CamModel)
+            except: tagerror = True
+            try: taglist.append(LensMake)
+            except: tagerror = True
+            try: taglist.append(LensModel)
+            except: tagerror = True
+            try: taglist.append(FocalLength+" mm")
+            except: tagerror = True
+            if Flashtag == True:
+                try: taglist.append("Flash")
+                except: tagerror = True
+            if len(taglist)>0:
+                tagstring = ";".join(taglist)
+                if DEBUG >= 1:print("Extracted tags:\n"+tagstring.replace(";",", ")+"\n")
+                exiftoolcommandargs.append('-xmp-dc:Subject="'+tagstring+'"')
+                if len(taglist)>1: exiftoolcommandargs.append('-sep ";"')
+        except Exception as e:
+            if DEBUG >= 1: print("Exception while processing xmp-dc:Subject (Tags)")
+            if DEBUG >1: print(e)
+
+        filepath = photopath+"/"+filename
+        specialCharTreatment(exiftoolcommandargs)
+        exiftoolcommandargs.append('-exif:Software="csv2exif by induna-crewneck" "'+filepath+'"')
+        exiftoolcommand = ' '.join(exiftoolcommandargs)
+        if DEBUG > 1:
+            print("\nArgument list:\n",exiftoolcommandargs,"\n")
+            print("Commandline:\n"+exiftoolcommand+"\n")
+            try:
+                f=open(photopath+"/"+filename+"_exiftoolcommand.txt", "w", encoding="UTF-8")
                 f.write(exiftoolcommand)
                 f.close()
+            except Exception as e: print("\nError during exiftool command logging:\n    ",e)
+        try:
             if DEBUG == 0:
                 try:print("Processing "+filename+", "+str(counter+1)+"/"+str(photocounter)+" ("+str(round(counter/photocounter*100,2))+"%)")
                 except:error=true
             os.system(exiftoolcommand)
             counter = counter+1
         except Exception as e:
-            if DEBUG >= 1: print("\nError during exiftool execution:\n",e)
+            if DEBUG >= 1: print("\nError during exiftool execution:\n  ",e)
         if DEBUG != 0: print("#############################################################################################\n")
 if counter == 1:print("    "+str(counter)+" image file updated\n")
 elif counter > 1:print("    "+str(counter)+" image files updated\n")
